@@ -8,7 +8,7 @@ from sklearn.linear_model import LogisticRegression
 import pickle
 import os
 
-nltk.download('punkt')
+# Download required NLTK data
 nltk.download('wordnet')
 
 lemmatizer = WordNetLemmatizer()
@@ -24,8 +24,8 @@ classes = []
 
 for intent in data["intents"]:
     for pattern in intent["patterns"]:
-        tokens = pattern.lower().split()
-        tokens = [lemmatizer.lemmatize(w.lower()) for w in tokens]
+        tokens = pattern.lower().split()  # Replaced word_tokenize with split()
+        tokens = [lemmatizer.lemmatize(w) for w in tokens]
         corpus.append(" ".join(tokens))
         labels.append(intent["tag"])
     if intent["tag"] not in classes:

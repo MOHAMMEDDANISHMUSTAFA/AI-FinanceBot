@@ -24,7 +24,7 @@ classes = []
 
 for intent in data["intents"]:
     for pattern in intent["patterns"]:
-        tokens = nltk.word_tokenize(pattern)
+        tokens = pattern.lower().split()
         tokens = [lemmatizer.lemmatize(w.lower()) for w in tokens]
         corpus.append(" ".join(tokens))
         labels.append(intent["tag"])

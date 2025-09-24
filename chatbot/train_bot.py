@@ -24,7 +24,7 @@ classes = []
 
 for intent in data["intents"]:
     for pattern in intent["patterns"]:
-        tokens = pattern.lower().split()  # Replaced word_tokenize with split()
+        tokens = pattern.lower().split()  # Simple split instead of word_tokenize
         tokens = [lemmatizer.lemmatize(w) for w in tokens]
         corpus.append(" ".join(tokens))
         labels.append(intent["tag"])

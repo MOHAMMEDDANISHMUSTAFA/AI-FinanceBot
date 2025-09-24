@@ -3,16 +3,17 @@ import json
 import random
 import pickle
 import math
+import requests
 
 # Initialize session state
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
-# Simple user database
+# User database with roles
 USER_CREDENTIALS = {
-    "admin": "pass123",
-    "danish": "finance2025",
-    "guest": "welcome"
+    "admin": {"password": "pass123", "role": "admin"},
+    "danish": {"password": "finance2025", "role": "user"},
+    "guest": {"password": "welcome", "role": "guest"}
 }
 
 # Login function
@@ -21,12 +22,20 @@ def login():
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
-        if username in USER_CREDENTIALS and USER_CREDENTIALS[username] == password:
+        user = USER_CREDENTIALS.get(username)
+        if user and user["password"] == password:
             st.session_state.logged_in = True
             st.session_state.username = username
+            st.session_state.role = user["role"]
             st.success(f"Welcome, {username}!")
         else:
             st.error("Invalid credentials")
+
+# Logout
+if st.session_state.logged_in:
+    if st.sidebar.button("Logout"):
+        st.session_state.logged_in = False
+        st.experimental_rerun()
 
 # Load model and data
 model = pickle.load(open("chatbot/model/chatbot_model.pkl", "rb"))
@@ -78,6 +87,22 @@ def calculate_emi(amount, rate, years):
     emi = (amount * monthly_rate * math.pow(1 + monthly_rate, months)) / (math.pow(1 + monthly_rate, months) - 1)
     return round(emi, 2)
 
+# Banking API (Plaid sandbox)
+def get_account_data():
+    url = "https://sandbox.plaid.com/accounts/get"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "client_id": "YOUR_CLIENT_ID",
+        "secret": "YOUR_SECRET",
+        "access_token": "ACCESS_TOKEN"
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        data = response.json()
+        return data.get("accounts", [])
+    except Exception as e:
+        return [{"error": str(e)}]
+
 # UI
 st.set_page_config(page_title="AI-FinanceBot", page_icon="💼")
 
@@ -85,7 +110,10 @@ if not st.session_state.logged_in:
     login()
 else:
     st.sidebar.title("🧭 Navigation")
-    page = st.sidebar.radio("Go to", ["Chatbot", "Loan Checker", "Account Recommendation", "Fraud Alert", "EMI Calculator"])
+    page = st.sidebar.radio("Go to", [
+        "Chatbot", "Loan Checker", "Account Recommendation",
+        "Fraud Alert", "EMI Calculator", "Banking Dashboard"
+    ])
 
     if page == "Chatbot":
         st.title("💬 AI-FinanceBot")
@@ -128,3 +156,14 @@ else:
         if st.button("Calculate EMI"):
             emi = calculate_emi(amount, rate, years)
             st.markdown(f"**Monthly EMI:** €{emi}")
+
+    elif page == "Banking Dashboard":
+        st.title("🏦 Banking Dashboard")
+        st.markdown("Fetching account data from Plaid sandbox...")
+        accounts = get_account_data()
+        for acc in accounts:
+            st.markdown(f"**{acc.get('name', 'Account')}**")
+            st.write(f"Type: {acc.get('type', 'N/A')}")
+            st.write(f"Subtype: {acc.get('subtype', 'N/A')}")
+            st.write(f"Balance: €{acc.get('balances', {}).get('current', 'N/A')}")
+            st.write("---")

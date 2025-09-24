@@ -9,7 +9,7 @@ import pickle
 import os
 
 # Download required NLTK data
-nltk.download('wordnet')
+nltk.download('wordnet')  # Only wordnet needed
 
 lemmatizer = WordNetLemmatizer()
 
@@ -24,7 +24,8 @@ classes = []
 
 for intent in data["intents"]:
     for pattern in intent["patterns"]:
-        tokens = pattern.lower().split()  # Simple split instead of word_tokenize
+        # Use simple split() instead of nltk.word_tokenize
+        tokens = pattern.lower().split()
         tokens = [lemmatizer.lemmatize(w) for w in tokens]
         corpus.append(" ".join(tokens))
         labels.append(intent["tag"])
@@ -37,7 +38,7 @@ X = vectorizer.fit_transform(corpus)
 y = labels
 
 # Train model
-model = LogisticRegression()
+model = LogisticRegression(max_iter=200)
 model.fit(X, y)
 
 # Save model and vectorizer

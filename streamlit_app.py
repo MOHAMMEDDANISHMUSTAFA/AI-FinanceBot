@@ -4,23 +4,27 @@ import random
 import pickle
 import math
 import requests
-import os
 from langdetect import detect
 from googletrans import Translator
-from datetime import datetime
 
-# Initialize session state
+# -------------------------------
+# Session state init
+# -------------------------------
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+# -------------------------------
 # User database with roles
+# -------------------------------
 USER_CREDENTIALS = {
     "admin": {"password": "pass123", "role": "admin"},
     "danish": {"password": "finance2025", "role": "user"},
     "guest": {"password": "welcome", "role": "guest"}
 }
 
+# -------------------------------
 # Login function
+# -------------------------------
 def login():
     st.title("🔐 Login to AI-FinanceBot")
     username = st.text_input("Username")
@@ -35,72 +39,60 @@ def login():
         else:
             st.error("Invalid credentials")
 
+# -------------------------------
 # Logout
+# -------------------------------
 if st.session_state.logged_in:
     if st.sidebar.button("Logout"):
         st.session_state.logged_in = False
         st.experimental_rerun()
 
-# Load model and data
-model = pickle.load(open("chatbot/model/chatbot_model.pkl", "rb"))
-vectorizer = pickle.load(open("chatbot/model/vectorizer.pkl", "rb"))
-classes = pickle.load(open("chatbot/model/classes.pkl", "rb"))
-with open("chatbot/intents.json", "r") as file:
-    data = json.load(file)
+# -------------------------------
+# Load model + intents (fallback safe)
+# -------------------------------
+try:
+    model = pickle.load(open("chatbot/model/chatbot_model.pkl", "rb"))
+    vectorizer = pickle.load(open("chatbot/model/vectorizer.pkl", "rb"))
+    classes = pickle.load(open("chatbot/model/classes.pkl", "rb"))
+    with open("chatbot/intents.json", "r") as file:
+        data = json.load(file)
+except:
+    model, vectorizer, classes, data = None, None, None, {"intents": []}
 
-# Translator
 translator = Translator()
 
+# -------------------------------
 # GDPR masking
+# -------------------------------
 def mask_sensitive(text):
     return text.replace("account", "****").replace("iban", "****").replace("name", "****")
 
+# -------------------------------
 # Guardrails
+# -------------------------------
 def is_source_backed(response):
     return "source:" in response.lower()
 
-# Audit logging
-def log_interaction(user, role, query, response):
-    with open("chat_logs.txt", "a", encoding="utf-8") as f:
-        f.write(f"{datetime.now()} | {user} ({role}) | Q: {query} | A: {response}\n")
-
-# Multilingual chatbot (merged with internal assistant)
+# -------------------------------
+# Multilingual chatbot
+# -------------------------------
 def get_response(user_input):
+    if not model or not vectorizer:
+        return "⚠️ Chatbot model not available."
     lang = detect(user_input)
-    translated = translator.translate(user_input, dest="en").text.lower()
-    
-    # RAG-lite docs
-    docs = {
-        "kyc": "All customers must complete KYC using valid ID and proof of address. Source: KYC Policy",
-        "loan": "Loan approval requires credit score above 600 and income proof. Source: Lending Guidelines",
-        "compliance": "Employees must report suspicious activity within 24 hours. Source: Compliance Manual"
-    }
-    for key in docs:
-        if key in translated:
-            response = docs[key]
-            if not is_source_backed(response):
-                response = "⚠️ Cannot answer without verified source."
-            response = mask_sensitive(response)
-            final = translator.translate(response, dest=lang).text
-            log_interaction(st.session_state.username, st.session_state.role, user_input, final)
-            return final
-
-    # Intent-based response
-    X = vectorizer.transform([translated])
+    translated = translator.translate(user_input, dest="en").text
+    X = vectorizer.transform([translated.lower()])
     prediction = model.predict(X)[0]
     for intent in data["intents"]:
         if intent["tag"] == prediction:
             reply = random.choice(intent["responses"])
             final = translator.translate(reply, dest=lang).text
-            log_interaction(st.session_state.username, st.session_state.role, user_input, final)
             return final
+    return "❌ Sorry, I don’t understand."
 
-    # Fallback
-    final = translator.translate("⚠️ Sorry, I don't understand that.", dest=lang).text
-    log_interaction(st.session_state.username, st.session_state.role, user_input, final)
-    return final
-
+# -------------------------------
 # Loan eligibility
+# -------------------------------
 def check_loan_eligibility(age, income, credit_score):
     if age < 18:
         return "❌ Not eligible: Must be at least 18 years old."
@@ -110,7 +102,9 @@ def check_loan_eligibility(age, income, credit_score):
         return "⚠️ Risky: Credit score below recommended threshold."
     return "✅ Eligible for loan consideration!"
 
+# -------------------------------
 # Account recommendation
+# -------------------------------
 def recommend_account(age, income, purpose):
     if age < 25 and purpose == "Education":
         return "🎓 Student Account"
@@ -121,41 +115,64 @@ def recommend_account(age, income, purpose):
     else:
         return "🏦 Standard Checking Account"
 
+# -------------------------------
 # Fraud detection
+# -------------------------------
 def detect_fraud(description):
     suspicious_keywords = ["transfer", "lottery", "urgent", "refund", "crypto", "gift", "unknown"]
     if any(word in description.lower() for word in suspicious_keywords):
         return "🚨 Alert: This transaction may be suspicious."
     return "✅ No fraud detected."
 
+# -------------------------------
 # EMI calculator
+# -------------------------------
 def calculate_emi(amount, rate, years):
     monthly_rate = rate / (12 * 100)
     months = years * 12
     emi = (amount * monthly_rate * math.pow(1 + monthly_rate, months)) / (math.pow(1 + monthly_rate, months) - 1)
     return round(emi, 2)
 
-# Banking API (Plaid sandbox)
-def get_account_data():
-    url = "https://sandbox.plaid.com/accounts/get"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "client_id": os.getenv("PLAID_CLIENT_ID", "demo_client"),
-        "secret": os.getenv("PLAID_SECRET", "demo_secret"),
-        "access_token": os.getenv("PLAID_ACCESS_TOKEN", "demo_token")
+# -------------------------------
+# OBP DirectLogin
+# -------------------------------
+def obp_direct_login(username, password, consumer_key):
+    url = "https://apisandbox.openbankproject.com/my/logins/direct"
+    headers = {
+        "Authorization": f"DirectLogin username={username}, password={password}, consumer_key={consumer_key}"
     }
-    try:
-        response = requests.post(url, headers=headers, json=payload)
-        data = response.json()
-        return data.get("accounts", [])
-    except Exception as e:
-        return [{"error": str(e)}]
+    resp = requests.post(url, headers=headers)
+    if resp.status_code == 201:
+        return resp.json()["token"]
+    else:
+        return None
 
-# Internal assistant (admin only, but RAG moved to chatbot too)
+def obp_get_accounts(token):
+    url = "https://apisandbox.openbankproject.com/obp/v5.1.0/my/accounts"
+    headers = {"Authorization": f"DirectLogin token={token}"}
+    resp = requests.get(url, headers=headers)
+    return resp.json()
+
+# -------------------------------
+# Internal assistant (mini RAG)
+# -------------------------------
 def internal_assistant(query):
-    return get_response(query)
+    docs = {
+        "kyc": "All customers must complete KYC using valid ID and proof of address. Source: KYC Policy",
+        "loan": "Loan approval requires credit score above 600 and income proof. Source: Lending Guidelines",
+        "compliance": "Employees must report suspicious activity within 24 hours. Source: Compliance Manual"
+    }
+    for key in docs:
+        if key in query.lower():
+            response = docs[key]
+            if not is_source_backed(response):
+                return "⚠️ Cannot answer without verified source."
+            return mask_sensitive(response)
+    return "⚠️ No matching policy found. Please refine your query."
 
-# UI
+# -------------------------------
+# Streamlit UI
+# -------------------------------
 st.set_page_config(page_title="AI-FinanceBot", page_icon="💼")
 
 if not st.session_state.logged_in:
@@ -211,15 +228,23 @@ else:
             st.markdown(f"**Monthly EMI:** €{emi}")
 
     elif page == "Banking Dashboard":
-        st.title("🏦 Banking Dashboard")
-        st.markdown("Fetching account data from Plaid sandbox...")
-        accounts = get_account_data()
-        for acc in accounts:
-            st.markdown(f"**{acc.get('name', 'Account')}**")
-            st.write(f"Type: {acc.get('type', 'N/A')}")
-            st.write(f"Subtype: {acc.get('subtype', 'N/A')}")
-            st.write(f"Balance: €{acc.get('balances', {}).get('current', 'N/A')}")
-            st.write("---")
+        st.title("🏦 Banking Dashboard (OBP Sandbox)")
+        username = st.text_input("OBP Username", value="danish")
+        password = st.text_input("OBP Password", type="password", value="Tanzil@123")
+        consumer_key = st.text_input("Consumer Key")  # paste from OBP dashboard
+        
+        if st.button("Login to OBP"):
+            token = obp_direct_login(username, password, consumer_key)
+            if token:
+                st.session_state["obp_token"] = token
+                st.success("✅ Logged in successfully!")
+            else:
+                st.error("❌ Login failed. Check credentials.")
+
+        if "obp_token" in st.session_state:
+            accounts = obp_get_accounts(st.session_state["obp_token"])
+            st.subheader("Your Accounts")
+            st.json(accounts)
 
     elif page == "Internal Assistant":
         if st.session_state.role != "admin":
